@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ethers } from 'ethers';
 import { Html5Qrcode } from 'html5-qrcode';
 
@@ -41,9 +41,18 @@ export function App() {
   const [addressInput, setAddressInput] = useState('');
   const [scanActive, setScanActive] = useState(false);
   const [status, setStatus] = useState('Ready. Start local testnet and add wallets.');
+  const [statusKey, setStatusKey] = useState(0);
+  const [flashedIds, setFlashedIds] = useState<Set<string>>(new Set());
+  const [newWalletId, setNewWalletId] = useState<string | null>(null);
+  const prevBalancesRef = useRef<Record<string, string>>({});
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const provider = useMemo(() => new ethers.JsonRpcProvider(rpcUrl), [rpcUrl]);
+
+  const updateStatus = useCallback((msg: string) => {
+    setStatus(msg);
+    setStatusKey((k) => k + 1);
+  }, []);
 
   useEffect(() => {
     const preloaded = new ethers.Wallet(PRELOADED_PRIVATE_KEY);
@@ -79,9 +88,27 @@ export function App() {
     }
   }, [wallets, provider]);
 
+  useEffect(() => {
+    const prev = prevBalancesRef.current;
+    const changed = new Set<string>();
+    for (const [id, val] of Object.entries(balances)) {
+      if (prev[id] !== undefined && prev[id] !== val) {
+        changed.add(id);
+      }
+    }
+    prevBalancesRef.current = balances;
+    if (changed.size > 0) {
+      setFlashedIds(changed);
+      const timer = setTimeout(() => setFlashedIds(new Set()), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [balances]);
+
   const addWallet = (wallet: WalletRecord) => {
+    setNewWalletId(wallet.id);
     setWallets((current) => [wallet, ...current]);
-    setStatus(`Added ${wallet.type} wallet ${shortAddress(wallet.address)}.`);
+    updateStatus(`Added ${wallet.type} wallet ${shortAddress(wallet.address)}.`);
+    setTimeout(() => setNewWalletId(null), 700);
   };
 
   const onGenerateWallet = () => {
@@ -97,7 +124,7 @@ export function App() {
 
   const onConnectMetamask = async () => {
     if (!window.ethereum) {
-      setStatus('MetaMask not found in this browser.');
+      updateStatus('MetaMask not found in this browser.');
       return;
     }
 
@@ -129,7 +156,7 @@ export function App() {
       });
       setPrivateKeyInput('');
     } catch {
-      setStatus('Invalid private key format.');
+      updateStatus('Invalid private key format.');
     }
   };
 
@@ -144,7 +171,7 @@ export function App() {
       });
       setAddressInput('');
     } catch {
-      setStatus('Invalid Ethereum address.');
+      updateStatus('Invalid Ethereum address.');
     }
   };
 
@@ -157,17 +184,17 @@ export function App() {
         setBalances((current) => ({ ...current, [wallet.id]: 'RPC unavailable' }));
       }
     }
-    setStatus('Balances refreshed.');
+    updateStatus('Balances refreshed.');
   };
 
   const transferEth = async () => {
     const wallet = wallets.find((entry) => entry.id === selectedWalletId);
     if (!wallet) {
-      setStatus('Select sender wallet first.');
+      updateStatus('Select sender wallet first.');
       return;
     }
     if (wallet.type === 'view') {
-      setStatus('View-only wallet cannot transfer.');
+      updateStatus('View-only wallet cannot transfer.');
       return;
     }
 
@@ -176,19 +203,19 @@ export function App() {
 
     if (wallet.type === 'metamask') {
       if (!window.ethereum) {
-        setStatus('MetaMask missing.');
+        updateStatus('MetaMask missing.');
         return;
       }
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const tx = await signer.sendTransaction({ to, value });
       await tx.wait();
-      setStatus(`MetaMask transfer sent: ${tx.hash}`);
+      updateStatus(`MetaMask transfer sent: ${tx.hash}`);
     } else if (wallet.signer) {
       const signer = wallet.signer.connect(provider);
       const tx = await signer.sendTransaction({ to, value });
       await tx.wait();
-      setStatus(`Transfer sent: ${tx.hash}`);
+      updateStatus(`Transfer sent: ${tx.hash}`);
     }
 
     await refreshBalances();
@@ -214,7 +241,7 @@ export function App() {
         () => undefined
       )
       .catch(() => {
-        setStatus('Camera unavailable or permission denied for QR import.');
+        updateStatus('Camera unavailable or permission denied for QR import.');
         setScanActive(false);
       });
 
@@ -373,11 +400,16 @@ export function App() {
             </thead>
             <tbody>
               {wallets.map((wallet) => (
-                <tr key={wallet.id} className="border-b border-slate-100">
+                <tr
+                  key={wallet.id}
+                  className={`border-b border-slate-100 ${wallet.id === newWalletId ? 'animate-slide-in' : ''}`}
+                >
                   <td className="py-2">{wallet.name}</td>
                   <td className="py-2 font-mono text-xs">{wallet.address}</td>
                   <td className="py-2 capitalize">{wallet.type}</td>
-                  <td className="py-2">{balances[wallet.id] ?? '...'}</td>
+                  <td className={`py-2 ${flashedIds.has(wallet.id) ? 'animate-flash-balance' : ''}`}>
+                    {balances[wallet.id] ?? '...'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -385,7 +417,7 @@ export function App() {
         </div>
       </section>
 
-      <p className="mt-4 rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">{status}</p>
+      <p key={statusKey} className="mt-4 animate-fade-in rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">{status}</p>
     </main>
   );
 }
