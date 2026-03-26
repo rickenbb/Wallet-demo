@@ -233,34 +233,36 @@ export function App() {
         </p>
       </header>
 
-      <section className="mb-6 grid gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3">
-        <div className="md:col-span-2">
-          <label className="mb-1 block text-sm font-medium">RPC URL (local testnet)</label>
-          <input
-            className="w-full rounded border border-slate-300 px-3 py-2"
-            value={rpcUrl}
-            onChange={(event) => setRpcUrl(event.target.value)}
-          />
-          <p className="mt-1 text-xs text-slate-500">
-            Run <code>npm run testnet</code> to host a local chain at 127.0.0.1:8545.
-          </p>
+      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-end gap-4">
+          <div className="flex-1">
+            <label className="mb-1 block text-sm font-medium">RPC URL (local testnet)</label>
+            <input
+              className="w-full rounded border border-slate-300 px-3 py-2"
+              value={rpcUrl}
+              onChange={(event) => setRpcUrl(event.target.value)}
+            />
+          </div>
+          <button
+            className="rounded bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-800"
+            onClick={() => void refreshBalances()}
+          >
+            Refresh holdings
+          </button>
         </div>
-        <button
-          className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
-          onClick={() => void refreshBalances()}
-        >
-          Refresh holdings
-        </button>
+        <p className="mt-1 text-xs text-slate-500">
+          Run <code>npm run testnet</code> to host a local chain at 127.0.0.1:8545.
+        </p>
       </section>
 
       <section className="mb-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">Add wallets</h2>
           <div className="flex flex-wrap gap-2">
-            <button className="rounded bg-slate-900 px-3 py-2 text-sm text-white" onClick={onGenerateWallet}>
+            <button className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800" onClick={onGenerateWallet}>
               Generate Ethereum wallet
             </button>
-            <button className="rounded bg-indigo-600 px-3 py-2 text-sm text-white" onClick={() => void onConnectMetamask()}>
+            <button className="rounded bg-sky-600 px-3 py-2 text-sm text-white hover:bg-sky-700" onClick={() => void onConnectMetamask()}>
               Connect MetaMask
             </button>
           </div>
@@ -275,13 +277,13 @@ export function App() {
             />
             <div className="flex gap-2">
               <button
-                className="rounded bg-emerald-600 px-3 py-2 text-sm text-white"
+                className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800"
                 onClick={() => importPrivateKey(privateKeyInput)}
               >
                 Import key string
               </button>
               <button
-                className="rounded bg-emerald-700 px-3 py-2 text-sm text-white"
+                className="rounded bg-sky-600 px-3 py-2 text-sm text-white hover:bg-sky-700"
                 onClick={() => setScanActive((current) => !current)}
               >
                 {scanActive ? 'Stop QR scan' : 'Import key via QR'}
@@ -299,11 +301,12 @@ export function App() {
               onChange={(event) => setAddressInput(event.target.value)}
             />
             <button
-              className="rounded bg-sky-700 px-3 py-2 text-sm text-white"
+              className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800"
               onClick={importViewOnlyAddress}
             >
               Import address
             </button>
+
           </div>
         </div>
 
@@ -345,7 +348,7 @@ export function App() {
               />
             </div>
 
-            <button className="w-full rounded bg-indigo-700 px-4 py-2 text-sm font-semibold text-white" onClick={() => void transferEth()}>
+            <button className="w-full rounded bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800" onClick={() => void transferEth()}>
               Send transfer
             </button>
           </div>
@@ -382,7 +385,7 @@ export function App() {
         </div>
       </section>
 
-      <p className="mt-4 rounded border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">{status}</p>
+      <p className="mt-4 rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">{status}</p>
     </main>
   );
 }
