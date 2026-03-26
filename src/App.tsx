@@ -262,56 +262,56 @@ export function App() {
 
       <section className="mb-6 grid gap-4 md:grid-cols-2">
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="mb-1 text-lg font-semibold">Add wallets</h2>
             <p className="mb-3 text-xs text-slate-500">Create a fresh random keypair or link your browser wallet.</p>
             <div className="flex flex-wrap gap-2">
-              <button className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800" onClick={onGenerateWallet}>
+              <button className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50" onClick={onGenerateWallet}>
                 Generate Ethereum wallet
               </button>
-              <button className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800" onClick={() => void onConnectMetamask()}>
+              <button className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50" onClick={() => void onConnectMetamask()}>
                 Connect MetaMask
               </button>
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-1 text-sm font-semibold">Import private key</h2>
+          <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-1 text-lg font-semibold">Import private key</h2>
             <p className="mb-3 text-xs text-slate-500">Paste or scan a hex private key to gain full signing control.</p>
             <input
-              className="mb-2 w-full rounded border border-slate-300 px-3 py-2"
+              className="mb-2 w-full rounded-sm border border-slate-300 px-3 py-2"
               placeholder="0x..."
               value={privateKeyInput}
               onChange={(event) => setPrivateKeyInput(event.target.value)}
             />
             <div className="flex gap-2">
               <button
-                className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800"
+                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
                 onClick={() => importPrivateKey(privateKeyInput)}
               >
                 Import key string
               </button>
               <button
-                className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800"
+                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
                 onClick={() => setScanActive((current) => !current)}
               >
                 {scanActive ? 'Stop QR scan' : 'Import key via QR'}
               </button>
             </div>
-            {scanActive && <div id="qr-reader" className="mt-2 max-w-sm overflow-hidden rounded border border-slate-200" />}
+            {scanActive && <div id="qr-reader" className="mt-2 max-w-sm overflow-hidden rounded-sm border border-slate-200" />}
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-1 text-sm font-semibold">Import view-only address</h2>
+          <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-1 text-lg font-semibold">Import view-only address</h2>
             <p className="mb-3 text-xs text-slate-500">Track any address balance without needing its private key.</p>
             <input
-              className="mb-2 w-full rounded border border-slate-300 px-3 py-2"
+              className="mb-2 w-full rounded-sm border border-slate-300 px-3 py-2"
               placeholder="0x..."
               value={addressInput}
               onChange={(event) => setAddressInput(event.target.value)}
             />
             <button
-              className="rounded bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800"
+              className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
               onClick={importViewOnlyAddress}
             >
               Import address
@@ -319,13 +319,13 @@ export function App() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">Transfer ETH</h2>
           <div className="space-y-3">
             <div>
               <label className="mb-1 block text-sm font-medium">Sender wallet</label>
               <select
-                className="w-full rounded border border-slate-300 px-3 py-2"
+                className="w-full rounded-sm border border-slate-300 px-3 py-2"
                 value={selectedWalletId}
                 onChange={(event) => setSelectedWalletId(event.target.value)}
               >
@@ -341,7 +341,7 @@ export function App() {
             <div>
               <label className="mb-1 block text-sm font-medium">Recipient address</label>
               <input
-                className="w-full rounded border border-slate-300 px-3 py-2"
+                className="w-full rounded-sm border border-slate-300 px-3 py-2"
                 placeholder="0x..."
                 value={targetAddress}
                 onChange={(event) => setTargetAddress(event.target.value)}
@@ -351,20 +351,20 @@ export function App() {
             <div>
               <label className="mb-1 block text-sm font-medium">Amount (ETH)</label>
               <input
-                className="w-full rounded border border-slate-300 px-3 py-2"
+                className="w-full rounded-sm border border-slate-300 px-3 py-2"
                 value={amountEth}
                 onChange={(event) => setAmountEth(event.target.value)}
               />
             </div>
 
-            <button className="w-full rounded bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800" onClick={() => void transferEth()}>
+            <button className="w-full rounded-sm bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-800" onClick={() => void transferEth()}>
               Send transfer
             </button>
           </div>
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Wallet holdings</h2>
           <span className="text-xs text-slate-500">Transparent ETH balance list</span>
@@ -399,18 +399,18 @@ export function App() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="mt-6 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-end gap-4">
           <div className="flex-1">
             <label className="mb-1 block text-sm font-medium">RPC URL (local testnet)</label>
             <input
-              className="w-full rounded border border-slate-300 px-3 py-2"
+              className="w-full rounded-sm border border-slate-300 px-3 py-2"
               value={rpcUrl}
               onChange={(event) => setRpcUrl(event.target.value)}
             />
           </div>
           <button
-            className="rounded bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-800"
+            className="rounded-sm bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
             onClick={() => void refreshBalances()}
           >
             Refresh holdings
@@ -421,7 +421,7 @@ export function App() {
         </p>
       </section>
 
-      <p key={statusKey} className="mt-4 animate-fade-in rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">{status}</p>
+      <p key={statusKey} className="mt-4 animate-fade-in rounded-sm border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">{status}</p>
     </main>
   );
 }
