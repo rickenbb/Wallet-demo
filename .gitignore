@@ -1,2 +1,12 @@
 node_modules/
 dist/
+
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/.terraform.lock.hcl
+infra/terraform.tfvars
+
+infra/
+deploy.sh   

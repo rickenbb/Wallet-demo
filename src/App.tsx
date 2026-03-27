@@ -15,7 +15,7 @@ type WalletRecord = {
   name: string;
   address: string;
   type: WalletType;
-  signer?: ethers.Wallet;
+  signer?: ethers.BaseWallet;
 };
 
 const DEFAULT_RPC = 'http://127.0.0.1:8545';
@@ -28,6 +28,16 @@ function shortAddress(address: string): string {
 
 function formatEth(valueWei: bigint): string {
   return Number(ethers.formatEther(valueWei)).toFixed(4);
+}
+
+function uuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 }
 
 export function App() {
@@ -58,7 +68,7 @@ export function App() {
     const preloaded = new ethers.Wallet(PRELOADED_PRIVATE_KEY);
     setWallets([
       {
-        id: crypto.randomUUID(),
+        id: uuid(),
         name: 'Preloaded Test Wallet (100 ETH)',
         address: preloaded.address,
         type: 'imported',
@@ -114,7 +124,7 @@ export function App() {
   const onGenerateWallet = () => {
     const wallet = ethers.Wallet.createRandom();
     addWallet({
-      id: crypto.randomUUID(),
+      id: uuid(),
       name: `Generated ${shortAddress(wallet.address)}`,
       address: wallet.address,
       type: 'generated',
@@ -134,7 +144,7 @@ export function App() {
     const address = await signer.getAddress();
 
     addWallet({
-      id: crypto.randomUUID(),
+      id: uuid(),
       name: `MetaMask ${shortAddress(address)}`,
       address,
       type: 'metamask'
@@ -148,7 +158,7 @@ export function App() {
     try {
       const wallet = new ethers.Wallet(privateKey);
       addWallet({
-        id: crypto.randomUUID(),
+        id: uuid(),
         name: `Imported ${shortAddress(wallet.address)}`,
         address: wallet.address,
         type: 'imported',
@@ -164,7 +174,7 @@ export function App() {
     try {
       const normalized = ethers.getAddress(addressInput.trim());
       addWallet({
-        id: crypto.randomUUID(),
+        id: uuid(),
         name: `View-only ${shortAddress(normalized)}`,
         address: normalized,
         type: 'view'
@@ -247,7 +257,7 @@ export function App() {
 
     return () => {
       void scanner.stop().catch(() => undefined);
-      void scanner.clear().catch(() => undefined);
+      scanner.clear();
     };
   }, [scanActive]);
 
