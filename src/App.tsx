@@ -11,6 +11,7 @@ declare global {
 
 type WalletType = 'generated' | 'imported' | 'metamask' | 'walletconnect' | 'view';
 type NetworkPreset = 'hardhat' | 'sepolia';
+type AddWalletMode = 'generate' | 'metamask' | 'walletconnect' | 'private-key' | 'view-only';
 
 type WalletRecord = {
   id: string;
@@ -107,11 +108,11 @@ export function App() {
   const [usdEthRate, setUsdEthRate] = useState(2000); // USD per ETH price for simulation
   const [usdBalance, setUsdBalance] = useState(() => {
     if (typeof window === 'undefined') {
-      return 12000;
+      return 80000;
     }
     const saved = window.localStorage.getItem('walletDemoUsdBalance');
     const parsed = saved ? Number(saved) : NaN;
-    return Number.isFinite(parsed) ? parsed : 12000;
+    return Number.isFinite(parsed) ? parsed : 80000;
   });
   const [privateKeyInput, setPrivateKeyInput] = useState('');
 
@@ -121,6 +122,8 @@ export function App() {
     }
   }, [usdBalance]);
   const [addressInput, setAddressInput] = useState('');
+  const [addWalletOpen, setAddWalletOpen] = useState(false);
+  const [addWalletMode, setAddWalletMode] = useState<AddWalletMode>('generate');
   const [scanActive, setScanActive] = useState(false);
   const [status, setStatus] = useState('Ready. Choose Hardhat or Sepolia and add wallets.');
   const [statusKey, setStatusKey] = useState(0);
@@ -133,14 +136,28 @@ export function App() {
 
   const selectedNetwork = NETWORKS[networkPreset];
   const selectedChainIdHex = toHexChainId(selectedNetwork.chainId);
-  const provider = useMemo(() => new ethers.JsonRpcProvider(rpcUrl), [rpcUrl]);
-  const bankWallet = useMemo(() => new ethers.Wallet(BANK_WALLET_PRIVATE_KEY, provider), [provider]);
+  const provider = useMemo(
+    () => new ethers.JsonRpcProvider(rpcUrl, selectedNetwork.chainId, { staticNetwork: true }),
+    [rpcUrl, selectedNetwork.chainId]
+  );
+  const effectiveBankPrivateKey = networkPreset === 'hardhat' ? PRELOADED_PRIVATE_KEY : BANK_WALLET_PRIVATE_KEY;
+  const bankWallet = useMemo(() => new ethers.Wallet(effectiveBankPrivateKey, provider), [effectiveBankPrivateKey, provider]);
   const bankAddress = bankWallet.address;
 
   const updateStatus = useCallback((msg: string) => {
     setStatus(msg);
     setStatusKey((k) => k + 1);
   }, []);
+
+  const waitForTx = useCallback(
+    async (txHash: string, context: string) => {
+      const receipt = await provider.waitForTransaction(txHash, 1, 45_000);
+      if (!receipt) {
+        throw new Error(`${context} confirmation timed out. Reconnect wallet and try again.`);
+      }
+    },
+    [provider]
+  );
 
   const addWallet = useCallback(
     (wallet: WalletRecord) => {
@@ -199,20 +216,25 @@ export function App() {
   );
 
   useEffect(() => {
-    const preloaded = new ethers.Wallet(PRELOADED_PRIVATE_KEY);
-    setWallets([
-      {
-        id: uuid(),
-        name: 'Preloaded Hardhat Wallet (100 ETH local)',
-        address: preloaded.address,
-        type: 'imported',
-        signer: preloaded
-      }
-    ]);
-  }, []);
+    return () => {
+      provider.destroy();
+    };
+  }, [provider]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadBalances = async () => {
+      try {
+        await provider.getBlockNumber();
+      } catch {
+        if (!cancelled) {
+          const unavailableEntries = wallets.map((wallet) => [wallet.id, 'RPC unavailable'] as const);
+          setBalances(Object.fromEntries(unavailableEntries));
+        }
+        return;
+      }
+
       const entries = await Promise.all(
         wallets.map(async (wallet) => {
           try {
@@ -224,12 +246,18 @@ export function App() {
         })
       );
 
-      setBalances(Object.fromEntries(entries));
+      if (!cancelled) {
+        setBalances(Object.fromEntries(entries));
+      }
     };
 
     if (wallets.length > 0) {
       void loadBalances();
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [wallets, provider]);
 
   useEffect(() => {
@@ -253,6 +281,12 @@ export function App() {
       setSelectedWalletId('');
     }
   }, [wallets, selectedWalletId]);
+
+  useEffect(() => {
+    if (scanActive && (!addWalletOpen || addWalletMode !== 'private-key')) {
+      setScanActive(false);
+    }
+  }, [addWalletMode, addWalletOpen, scanActive]);
 
   useEffect(() => {
     return () => {
@@ -309,6 +343,8 @@ export function App() {
 
       const walletConnectProvider = await EthereumProvider.init({
         projectId: WALLETCONNECT_PROJECT_ID,
+        logger: 'silent',
+        disableProviderPing: true,
         chains: [selectedNetwork.chainId],
         optionalChains: [NETWORKS.hardhat.chainId, NETWORKS.sepolia.chainId],
         showQrModal: true,
@@ -328,6 +364,14 @@ export function App() {
         walletConnectWalletIdRef.current = null;
         walletConnectProviderRef.current = null;
         setWallets((current) => current.filter((wallet) => wallet.type !== 'walletconnect'));
+        updateStatus('WalletConnect disconnected. Reconnect to continue.');
+      });
+
+      walletConnectProvider.on('session_delete', () => {
+        walletConnectWalletIdRef.current = null;
+        walletConnectProviderRef.current = null;
+        setWallets((current) => current.filter((wallet) => wallet.type !== 'walletconnect'));
+        updateStatus('WalletConnect session ended. Reconnect wallet.');
       });
 
       walletConnectProvider.on('accountsChanged', (accounts: string[]) => {
@@ -430,14 +474,32 @@ export function App() {
   };
 
   const refreshBalances = async () => {
-    for (const wallet of wallets) {
-      try {
-        const b = await provider.getBalance(wallet.address);
-        setBalances((current) => ({ ...current, [wallet.id]: formatEth(b) }));
-      } catch {
-        setBalances((current) => ({ ...current, [wallet.id]: 'RPC unavailable' }));
-      }
+    if (wallets.length === 0) {
+      updateStatus('No wallets to refresh.');
+      return;
     }
+
+    try {
+      await provider.getBlockNumber();
+    } catch {
+      const unavailableEntries = wallets.map((wallet) => [wallet.id, 'RPC unavailable'] as const);
+      setBalances(Object.fromEntries(unavailableEntries));
+      updateStatus(`RPC unavailable at ${rpcUrl}.`);
+      return;
+    }
+
+    const entries = await Promise.all(
+      wallets.map(async (wallet) => {
+        try {
+          const balance = await provider.getBalance(wallet.address);
+          return [wallet.id, formatEth(balance)] as const;
+        } catch {
+          return [wallet.id, 'RPC unavailable'] as const;
+        }
+      })
+    );
+
+    setBalances(Object.fromEntries(entries));
     updateStatus('Balances refreshed.');
   };
 
@@ -465,7 +527,7 @@ export function App() {
         const browserProvider = new ethers.BrowserProvider(window.ethereum);
         const signer = await browserProvider.getSigner();
         const tx = await signer.sendTransaction({ to, value });
-        await tx.wait();
+        await waitForTx(tx.hash, 'MetaMask transfer');
         updateStatus(`MetaMask transfer sent: ${tx.hash}`);
       } else if (wallet.type === 'walletconnect') {
         if (!walletConnectProviderRef.current) {
@@ -478,12 +540,12 @@ export function App() {
         const browserProvider = new ethers.BrowserProvider(externalProvider);
         const signer = await browserProvider.getSigner();
         const tx = await signer.sendTransaction({ to, value });
-        await tx.wait();
+        await waitForTx(tx.hash, 'WalletConnect transfer');
         updateStatus(`WalletConnect transfer sent: ${tx.hash}`);
       } else if (wallet.signer) {
         const signer = wallet.signer.connect(provider);
         const tx = await signer.sendTransaction({ to, value });
-        await tx.wait();
+        await waitForTx(tx.hash, 'Transfer');
         updateStatus(`Transfer sent: ${tx.hash}`);
       }
 
@@ -505,7 +567,7 @@ export function App() {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const tx = await signer.sendTransaction({ to, value });
-      await tx.wait();
+      await waitForTx(tx.hash, 'MetaMask sell');
       return tx.hash;
     }
 
@@ -518,14 +580,14 @@ export function App() {
       const browserProvider = new ethers.BrowserProvider(externalProvider);
       const signer = await browserProvider.getSigner();
       const tx = await signer.sendTransaction({ to, value });
-      await tx.wait();
+      await waitForTx(tx.hash, 'WalletConnect sell');
       return tx.hash;
     }
 
     if (wallet.signer) {
       const signer = wallet.signer.connect(provider);
       const tx = await signer.sendTransaction({ to, value });
-      await tx.wait();
+      await waitForTx(tx.hash, 'Sell');
       return tx.hash;
     }
 
@@ -618,7 +680,7 @@ export function App() {
         to: wallet.address,
         value: ethers.parseEther(amount.toString())
       });
-      await tx.wait();
+      await waitForTx(tx.hash, 'Buy');
 
       setUsdBalance((current) => {
         const next = Number((current - costUsd).toFixed(2));
@@ -665,98 +727,134 @@ export function App() {
 
   return (
     <main className="mx-auto max-w-5xl p-6 text-slate-800">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold">Wallet Aggregator POC</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Manage generated, imported, MetaMask, WalletConnect, and view-only wallets in one place.
-        </p>
-      </header>
-
-      <section className="mb-6 grid gap-4 md:grid-cols-2">
-        <div className="space-y-4">
-          <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-1 text-lg font-semibold">Add wallets</h2>
-            <p className="mb-3 text-xs text-slate-500">
-              Create a keypair, connect MetaMask, or pair a mobile wallet with WalletConnect.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
-                onClick={onGenerateWallet}
-              >
-                Generate Ethereum wallet
-              </button>
-              <button
-                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
-                onClick={() => void onConnectMetamask()}
-              >
-                Connect MetaMask
-              </button>
-              <button
-                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-                onClick={() => void onConnectWalletConnect()}
-                disabled={!WALLETCONNECT_PROJECT_ID}
-              >
-                Connect WalletConnect
-              </button>
-              <button
-                className="rounded-sm border border-slate-500 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-                onClick={() => void disconnectWalletConnect()}
-              >
-                Disconnect WalletConnect
-              </button>
-            </div>
-            {!WALLETCONNECT_PROJECT_ID && (
-              <p className="mt-2 text-xs text-amber-700">
-                Set <code>VITE_WALLETCONNECT_PROJECT_ID</code> in your env to enable WalletConnect.
-              </p>
-            )}
-          </div>
-
-          <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-1 text-lg font-semibold">Import private key</h2>
-            <p className="mb-3 text-xs text-slate-500">Paste or scan a hex private key to gain full signing control.</p>
-            <input
-              className="mb-2 w-full rounded-sm border border-slate-300 px-3 py-2"
-              placeholder="0x..."
-              value={privateKeyInput}
-              onChange={(event) => setPrivateKeyInput(event.target.value)}
-            />
-            <div className="flex gap-2">
-              <button
-                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
-                onClick={() => importPrivateKey(privateKeyInput)}
-              >
-                Import key string
-              </button>
-              <button
-                className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
-                onClick={() => setScanActive((current) => !current)}
-              >
-                {scanActive ? 'Stop QR scan' : 'Import key via QR'}
-              </button>
-            </div>
-            {scanActive && <div id="qr-reader" className="mt-2 max-w-sm overflow-hidden rounded-sm border border-slate-200" />}
-          </div>
-
-          <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-1 text-lg font-semibold">Import view-only address</h2>
-            <p className="mb-3 text-xs text-slate-500">Track any address balance without needing its private key.</p>
-            <input
-              className="mb-2 w-full rounded-sm border border-slate-300 px-3 py-2"
-              placeholder="0x..."
-              value={addressInput}
-              onChange={(event) => setAddressInput(event.target.value)}
-            />
+      <header className="mb-6 grid gap-4 lg:grid-cols-[1fr_340px] lg:items-start">
+        <div>
+          <h1 className="text-3xl font-bold">Wallet Aggregator POC</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Manage generated, imported, MetaMask, WalletConnect, and view-only wallets in one place.
+          </p>
+        </div>
+        <div className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Add wallet</h2>
             <button
-              className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
-              onClick={importViewOnlyAddress}
+              className="rounded-sm border border-sky-600 px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50"
+              onClick={() => setAddWalletOpen((current) => !current)}
             >
-              Import address
+              {addWalletOpen ? 'Close' : 'Add wallet'}
             </button>
           </div>
-        </div>
 
+          {addWalletOpen && (
+            <div className="mt-3 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Method</label>
+                <select
+                  className="w-full rounded-sm border border-slate-300 bg-white px-3 py-2"
+                  value={addWalletMode}
+                  onChange={(event) => setAddWalletMode(event.target.value as AddWalletMode)}
+                >
+                  <option value="generate">Generate wallet</option>
+                  <option value="metamask">Connect MetaMask</option>
+                  <option value="walletconnect">Connect WalletConnect</option>
+                  <option value="private-key">Import private key</option>
+                  <option value="view-only">Import view-only address</option>
+                </select>
+              </div>
+
+              {addWalletMode === 'generate' && (
+                <button
+                  className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
+                  onClick={onGenerateWallet}
+                >
+                  Generate Ethereum wallet
+                </button>
+              )}
+
+              {addWalletMode === 'metamask' && (
+                <button
+                  className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
+                  onClick={() => void onConnectMetamask()}
+                >
+                  Connect MetaMask
+                </button>
+              )}
+
+              {addWalletMode === 'walletconnect' && (
+                <div className="space-y-2">
+                  <button
+                    className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                    onClick={() => void onConnectWalletConnect()}
+                    disabled={!WALLETCONNECT_PROJECT_ID}
+                  >
+                    Connect WalletConnect
+                  </button>
+                  <button
+                    className="rounded-sm border border-slate-500 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                    onClick={() => void disconnectWalletConnect()}
+                  >
+                    Disconnect WalletConnect
+                  </button>
+                  {!WALLETCONNECT_PROJECT_ID && (
+                    <p className="text-xs text-amber-700">
+                      Set <code>VITE_WALLETCONNECT_PROJECT_ID</code> in your env to enable WalletConnect.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {addWalletMode === 'private-key' && (
+                <div>
+                  <p className="mb-2 text-xs text-slate-500">Paste or scan a hex private key to gain full signing control.</p>
+                  <input
+                    className="mb-2 w-full rounded-sm border border-slate-300 bg-white px-3 py-2"
+                    placeholder="0x..."
+                    value={privateKeyInput}
+                    onChange={(event) => setPrivateKeyInput(event.target.value)}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
+                      onClick={() => importPrivateKey(privateKeyInput)}
+                    >
+                      Import key string
+                    </button>
+                    <button
+                      className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
+                      onClick={() => setScanActive((current) => !current)}
+                    >
+                      {scanActive ? 'Stop QR scan' : 'Import key via QR'}
+                    </button>
+                  </div>
+                  {scanActive && (
+                    <div id="qr-reader" className="mt-2 max-w-sm overflow-hidden rounded-sm border border-slate-200 bg-white" />
+                  )}
+                </div>
+              )}
+
+              {addWalletMode === 'view-only' && (
+                <div>
+                  <p className="mb-2 text-xs text-slate-500">Track any address balance without needing its private key.</p>
+                  <input
+                    className="mb-2 w-full rounded-sm border border-slate-300 bg-white px-3 py-2"
+                    placeholder="0x..."
+                    value={addressInput}
+                    onChange={(event) => setAddressInput(event.target.value)}
+                  />
+                  <button
+                    className="rounded-sm border border-sky-600 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50"
+                    onClick={importViewOnlyAddress}
+                  >
+                    Import address
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <section className="mb-6 grid gap-4 lg:grid-cols-2">
         <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">Transfer ETH</h2>
           <div className="space-y-3">
@@ -801,52 +899,81 @@ export function App() {
             >
               Send transfer
             </button>
+          </div>
+        </div>
 
-            <div className="mt-4 rounded-md border border-slate-200 p-3">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-semibold">USD Wallet</span>
-                <span>${usdBalance.toFixed(2)} USD</span>
-              </div>
-              <div className="mb-2">
-                <label className="mb-1 block text-sm font-medium">ETH/USD price</label>
-                <input
-                  className="w-full rounded-sm border border-slate-300 px-3 py-2"
-                  type="number"
-                  value={usdEthRate}
-                  min={0}
-                  onChange={(event) => setUsdEthRate(Number(event.target.value))}
-                />
-              </div>
-              <div className="mb-2">
-                <label className="mb-1 block text-sm font-medium">Trade amount (ETH)</label>
-                <input
-                  className="w-full rounded-sm border border-slate-300 px-3 py-2"
-                  value={sellAmountEth}
-                  onChange={(event) => setSellAmountEth(event.target.value)}
-                />
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="w-full rounded-sm bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
-                  onClick={() => void sellEth()}
-                >
-                  Sell ETH → USD
-                </button>
-                <button
-                  className="w-full rounded-sm bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800"
-                  onClick={() => void buyEth()}
-                >
-                  Buy ETH ← USD
-                </button>
-              </div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-lg font-semibold">Trade ETH ↔ USD</h2>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Trading wallet</label>
+              <select
+                className="w-full rounded-sm border border-slate-300 px-3 py-2"
+                value={selectedWalletId}
+                onChange={(event) => setSelectedWalletId(event.target.value)}
+              >
+                <option value="">Choose wallet</option>
+                {wallets.map((wallet) => (
+                  <option key={wallet.id} value={wallet.id}>
+                    {wallet.name} ({wallet.type})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">ETH/USD price</label>
+              <input
+                className="w-full rounded-sm border border-slate-300 px-3 py-2"
+                type="number"
+                value={usdEthRate}
+                min={0}
+                onChange={(event) => setUsdEthRate(Number(event.target.value))}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">Trade amount (ETH)</label>
+              <input
+                className="w-full rounded-sm border border-slate-300 px-3 py-2"
+                value={sellAmountEth}
+                onChange={(event) => setSellAmountEth(event.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                className="w-full rounded-sm bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+                onClick={() => void sellEth()}
+              >
+                Sell ETH → USD
+              </button>
+              <button
+                className="w-full rounded-sm bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-800"
+                onClick={() => void buyEth()}
+              >
+                Buy ETH ← USD
+              </button>
             </div>
           </div>
         </div>
       </section>
 
       <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Accounts</h2>
+          <span className="text-xs text-slate-500">Wallet + cash balances</span>
+        </div>
+
+        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">USD account</span>
+            <span className="text-lg font-semibold">${usdBalance.toFixed(2)} USD</span>
+          </div>
+        </div>
+
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Wallet holdings</h2>
+          <h3 className="text-base font-semibold">Wallet holdings</h3>
           <span className="text-xs text-slate-500">Transparent ETH balance list</span>
         </div>
 
@@ -921,6 +1048,9 @@ export function App() {
             For Sepolia, fund sender wallets with faucet ETH and ensure your external wallet is on chain 11155111.
           </p>
         )}
+        <p className="mt-2 text-xs text-slate-500">
+          Bank ETH address: <span className="font-mono">{bankAddress}</span>
+        </p>
       </section>
 
       <p
